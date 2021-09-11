@@ -1,0 +1,24 @@
+{
+  "name": "rapair-lighthouse",
+  "version": "1.0.0",
+  "description": "simulation to evaluate the performance of whale-lighthouse",
+  "main": "./server/server.js",
+  "dependencies": {
+    "body-parser": "latest",
+    "ejs": "latest",
+    "express": "latest",
+    "http": "latest",
+    "request": "latest",
+    "sync-request": "latest",
+    "node-telegram-bot-api": "latest",
+    "events": "latest"
+  },
+  "license": "MIT",
+  "keywords": [
+    "Simulation",
+    "Backtesting",
+    "Upbit",
+    "Crypto Currency",
+    "Crypto Asset"
+  ]
+}
