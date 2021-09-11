@@ -1,6 +1,7 @@
-
-
-
+const upbitSvc = require('../../upbit/svc/upbit.svc');
+const lighthouseSvc = require('./lighthouse.svc');
+let xrpDB = require('../../../db/xrp');
+let lighthouseResult = [];
 
 /** 백테스팅 수행
  * backtesting
@@ -8,66 +9,154 @@
  * @param res
  * @returns {*}
  */
-const backtesting = function(req, res) {
+const backtesting = async function(req, res) {
     const bodyJSON = req.body;
-    console.info(bodyJSON);
+
+    /* 1. 업비트 분단위 캔들 조회 todo: 배치 프로그램으로 옮기자 */
+    await getMinuteCandle(bodyJSON.market);
 
 
-    /* 1. 업비트 분단위 캔들 조회 */
+    /* 2. lighthouse API 호출 */
+    lighthouseResult = [];
+    for ( let idx = 0; idx < xrpDB.length ; idx++) {
+        let rtn = await lighthouseSvc.callLighthouse(xrpDB[idx], bodyJSON);
+        let rtnJSON = JSON.parse(rtn)
+
+        let i = lighthouseResult.length;
+        lighthouseResult[i] = {"candle": xrpDB[idx], "lighthouse": rtnJSON};
+    }
 
 
+    /* 3. 시뮬레이션 수행 */
+    let wallet = await simulation();
+    let the_rate_of_profit = ((wallet.balance - 10000000) / 100000).toFixed(2).concat(" %");
 
-    /* 2. 순회: 모니터링 조회 ( lighthouse API 호출 )
-    * @parm: 분단위 캔들 조회 결과값 기반 인자 값 세팅
-    *   {
-    *       "bodyJSON": {
-    *           "market": "KRW-XRP",
-    *           "trade_time_kst": "",
-    *           "trade_price": 0,
-    *           "signed_change_rate": "전일 대비",
-    *           "opening_price": 0,
-    *           "high_price": 0
-    *       },
-    *       "change_price_rate_a_minute": "최근 1분 간 가격 변화율",
-    *       "change_price_rate_five_minute": "최근 5분 간 가격 변화율",
-    *       "change_price_rate_ten_minute": "최근 10분 간 가격 변화율",
-    *       "avg_price_five_minute_rate": "최근 5분 간 평균 가격 대비 시가 증감률",
-    *       "avg_price_ten_minute_rate": "최근 10분 간 평균 가격 대비 시가 증감률",
-    *       "trade_volume": "최근 거래량",
-    *       "last_five_minute_avg_trade_volume": "최근 5분 간 평균 거래량",
-    *       "last_ten_minute_avg_trade_volume": "최근 10분 간 평균 거래량"
-    *   }
-    * @return:
-    *   {
-    *       "detectYn": "",
-    *       "cont": ""
-    *   }
-    */
+    let result = {
+        "result": "백테스팅 결과",
+        "wallet": wallet,
+        "the_rate_of_profit": the_rate_of_profit
+    }
+    console.info("백테스팅 결과,,,,");
+    console.info(result);
 
-
-
-    /* 3. 시뮬레이션
-    * - detectYn 및 cont 기반, 매수/매도 시뮬레이션 수행
-    *
-    * @return:
-    *   {
-    *       "total_profit": "총 수익률",
-    *       "trade_volume_basis_value": "거래량 특이점 기준 값",
-    *       "change_price_rate_negative_basis_value": "가격 변화율 특이점 음의 기준 값",
-    *       "change_price_rate_positive_basis_value": "가격 변화율 특이점 양의 기준 값",
-    *       "downward_change_price_rate_a_minute_basis_value": "하방 최근 1분 간 가격 변화율 기준 값",
-    *       "downward_last_five_minute_avg_trade_volume_basis_value": "하방 최근 5분 간 평균 거래량 기준 값",
-    *       "downward_last_ten_minute_avg_trade_volume_basis_value": "하방 최근 10분 간 평균 거래량 기준 값",
-    *       "upward_change_price_rate_a_minute_basis_value": "상방 최근 1분 간 가격 변화율 기준 값",
-    *       "upward_last_five_minute_avg_trade_volume_basis_value": "상방 최근 5분 간 평균 거래량 기준 값",
-    *       "upward_last_ten_minute_avg_trade_volume_basis_value": "상방 최근 10분 간 평균 거래량 기준 값"
-    *   }
-    */
-
-
-
-    return res.send("백테스팅 호출");
+    return res.json(JSON.stringify(result));
 };
+
+
+const simulation = async function() {
+    // 초기 자본 기본값: 1,000 만원      초기 물량: 0    평단가: 0
+    let wallet = {
+        "balance": 10000000,
+        "amount": 0,
+        "avg_price": 0
+    }
+
+    let cnt = 0;
+    let trade_price = 0;
+    let position = "short";
+
+    for ( let idx = 0; idx < lighthouseResult.length; idx++ ) {
+        if (lighthouseResult[idx].lighthouse.detectYn == "Y") {
+            cnt++;
+            console.info(cnt.toString() + "번째 감지");
+            trade_price = lighthouseResult[idx].candle.trade_price;
+
+            if (lighthouseResult[idx].lighthouse.cont.substr(1, 4) != "UW01"
+                    && lighthouseResult[idx].lighthouse.cont.substr(1, 4) != "DW01") {
+                console.info(lighthouseResult[idx].candle);
+            }
+        }
+    }
+
+    return wallet;
+}
+
+
+const transaction = function(wallet, trade_price, position) {
+    let balance = wallet.balance;
+    let amount = wallet.amount;
+
+    if ( position == "long") {
+        let newAmount = Number((balance / trade_price).toFixed(0));
+        return wallet = {
+            "balance": 0,
+            "amount": newAmount
+        };
+    }
+    else {
+        let newBalance = Number((amount * trade_price).toFixed(0));
+        return wallet = {
+            "balance": newBalance,
+            "amount": 0
+        };
+    }
+}
+
+
+
+const getMinuteCandle = async function(market) {
+    // basis term: 2021. 04. 20. ~ 2021. 04. 27
+    let date = new Date(2021, 3, 20);
+
+    for (let day = 1; day <= 8; day++) {
+        let dateInfo = date.toLocaleDateString().split("/");        // [월, 일, 년]
+        let MM = dateInfo[0];
+        if (MM.length == 1) {
+            MM = "0".concat(MM);
+        }
+        let dd = dateInfo[1];
+        if (dd.length == 1) {
+            dd = "0".concat(dd);
+        }
+        let yyyy = dateInfo[2];
+        let HH = 0;
+        let strHH = "";
+
+        for (let cnt = 0; cnt < 8; cnt++) {
+            HH += 3;
+            if (HH.toString().length == 1) {
+                strHH = "0".concat(HH.toString());
+            } else {
+                strHH = HH.toString();
+            }
+
+            // format: yyyy-MM-dd HH:mm:ss
+            let last_candle_time = yyyy.concat("-")
+                                    .concat(MM).concat("-")
+                                    .concat(dd).concat(" ")
+                                    .concat(strHH).concat(":00:00");
+
+            console.info("=== 시세 분캔들 조회: " + last_candle_time);
+
+            let dataJSON = {
+                "market": market,
+                "last_candle_time": last_candle_time,
+                "count": "180"
+            }
+
+            let candle = await upbitSvc.getMinuteCandle(dataJSON);
+            await updateDB(candle);
+        }
+
+        await sleep(3000);
+        date.setDate(date.getDate() + 1);       // 일 수 증가
+    }
+}
+
+const updateDB = function(candle) {
+    let idx = 0;
+    for (let cnt = candle.length - 1; cnt >= 0; cnt--) {
+        xrpDB[idx] = candle[cnt];
+        idx++;
+    }
+}
+
+
+const sleep = function(ms) {
+    return new Promise(resolve=>{
+        setTimeout(resolve,ms);
+    })
+}
 
 
 /** todo: 고래탐지 모니터링 요소 값 변경 호출
